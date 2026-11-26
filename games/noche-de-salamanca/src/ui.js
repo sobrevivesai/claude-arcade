@@ -75,8 +75,17 @@ export class UI{
     if(all){this.lps=null;$('#lu').hidden=true;this.luCb();}}
   // ------- fin -------
   // ------- táctil -------
-  touchInit(){this.isTouch=matchMedia('(pointer:coarse)').matches&&!matchMedia('(any-pointer:fine)').matches;const T=input.touch,st=$('#stick'),c=$('#c');let id=null,ox=0,oy=0;const mv=e=>{if(e.pointerId!==id)return;let dx=(e.clientX-ox)/52,dy=(e.clientY-oy)/52;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l;}T.x=dx;T.z=dy;st.firstChild.style.transform=`translate(calc(-50% + ${dx*42}px),calc(-50% + ${dy*42}px))`;};
+  // Celular o tablet con pantalla táctil. No se usa (any-pointer:fine): muchos Samsung y Xiaomi lo reportan por el lápiz o el lector de huella.
+  touchInit(){this.isTouch=navigator.maxTouchPoints>0&&(matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+    // Si igual se equivoca: al tocar la pantalla el jugador de teclado pasa a táctil, y al mover con el teclado vuelve.
+    addEventListener('pointerdown',e=>{if(e.pointerType==='touch')this.useDev('touch');},{capture:true});
+    addEventListener('keydown',e=>{const t=e.target&&e.target.tagName;if(e.isTrusted&&t!=='INPUT'&&t!=='TEXTAREA'&&/^(Key[WASD]|Arrow)/.test(e.code))this.useDev('k1');},{capture:true});
+    const T=input.touch,st=$('#stick'),c=$('#c');let id=null,ox=0,oy=0;const mv=e=>{if(e.pointerId!==id)return;let dx=(e.clientX-ox)/52,dy=(e.clientY-oy)/52;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l;}T.x=dx;T.z=dy;st.firstChild.style.transform=`translate(calc(-50% + ${dx*42}px),calc(-50% + ${dy*42}px))`;};
     c.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||id!==null)return;id=e.pointerId;ox=e.clientX;oy=e.clientY;st.style.display='block';st.style.left=ox+'px';st.style.top=oy+'px';try{c.setPointerCapture(id);}catch(_){}});c.addEventListener('pointermove',mv);const up=e=>{if(e.pointerId!==id)return;id=null;T.x=T.z=0;st.style.display='none';};c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
     const bt=(q,k)=>{const b=$(q);b.addEventListener('pointerdown',()=>T[k]=true);for(const n of['pointerup','pointerleave','pointercancel'])b.addEventListener(n,()=>T[k]=false);};bt('#tdash','dash');bt('#tult','ult');bt('#tsk','sk');$('#pbtn').onclick=()=>{if(this.game.state==='play')this.pause();};}
+  // Cambia el control del único jugador local de teclado/táctil (en la sala y en la partida en curso)
+  useDev(d){const o=d==='touch'?'k1':'touch';if(d==='touch')this.isTouch=true;const ok=l=>l.some(s=>s&&(s.dev===d||s.dev==='k2'))?-1:l.findIndex(s=>s&&s.dev===o);
+    const i=ok(this.slots);if(i>=0){this.slots[i].dev=d;if(this.scr==='lobby')this.drawSlots();}
+    const ps=this.game&&this.game.players||[],j=ok(ps);if(j>=0){ps[j].dev=d;if(!$('#hud').hidden)$('#touch').hidden=d!=='touch';const b=this.pe&&this.pe[j]&&this.pe[j].sk.querySelector('b');if(b)b.textContent=d==='k1'?'Q':'';}}
 }
 for(const k in UI2)UI.prototype[k]=UI2[k];
