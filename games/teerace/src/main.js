@@ -5,13 +5,27 @@ import { createMapRenderer, drawTee, drawHook, drawHammer, loadSkin } from './re
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = { get(k, d) { try { const v = localStorage.getItem('tr:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem('tr:' + k, JSON.stringify(v)); } catch { /* sin storage */ } } };
-const MAPS = [
-  { id: 'tutorial', name: 'Tutorial', by: 'unique2 & Alisa', lvl: 'Para aprender' },
-  { id: 'learntoplay', name: 'LearnToPlay', by: 'Tridemy & Cøke', lvl: 'Fácil' },
-  { id: 'sunny', name: 'Sunny Side Up', by: 'Ravie', lvl: 'Fácil' },
-  { id: 'goldmine', name: 'Gold Mine', by: 'BµmM', lvl: 'Media' },
-  { id: 'tsunami', name: 'Tsunami', by: 'louis', lvl: 'Difícil' },
+// categorías y estrellas como en los servidores de DDNet (types/<categoría>/maps.txt de ddnet-maps)
+const CATS = [
+  { id: 'novice', name: 'Novice', es: 'Fácil', c: '#3fae5a' },
+  { id: 'moderate', name: 'Moderate', es: 'Media', c: '#e8a030' },
+  { id: 'brutal', name: 'Brutal', es: 'Difícil', c: '#d9502c' },
+  { id: 'insane', name: 'Insane', es: 'Muy difícil', c: '#a63cc4' },
 ];
+const MAPS = [
+  { id: 'tutorial', name: 'Tutorial', by: 'unique2 & Alisa', cat: 'novice', st: 1, tut: true },
+  { id: 'learntoplay', name: 'LearnToPlay', by: 'Tridemy & Cøke', cat: 'novice', st: 2 },
+  { id: 'sunny', name: 'Sunny Side Up', by: 'Ravie', cat: 'novice', st: 3 },
+  { id: 'goldmine', name: 'Gold Mine', by: 'BµmM', cat: 'novice', st: 1 },
+  { id: 'tsunami', name: 'Tsunami', by: 'louis', cat: 'novice', st: 1 },
+  { id: 'axison', name: 'Axison', by: 'texnonik', cat: 'novice', st: 3 },
+  { id: 'backtobasics', name: 'BackToBasics', by: 'Shorefire', cat: 'moderate', st: 5 },
+  { id: 'bouncykingdom', name: 'Bouncy Kingdom', by: 'Welf', cat: 'moderate', st: 4 },
+  { id: 'aardvark', name: 'Aardvark', by: 'Pulsar & Ravie', cat: 'brutal', st: 1 },
+  { id: 'aimbot', name: 'Aimbot', by: 'Aoe', cat: 'insane', st: 3 },
+  { id: 'catharsis', name: 'Catharsis', by: 'Doshik', cat: 'insane', st: 1 },
+];
+const BG_MAP = 'sunny'; // el mapa que se ve de fondo en el menú
 const cv = $('cv'), x = cv.getContext('2d');
 const game = new Image(); game.src = 'img/game.webp';
 let W = 0, H = 0, DPR = 1;
@@ -36,22 +50,29 @@ let myId = 'solo', myName = 'Vos', mySkin = store.get('skin', 'default');
 let skins = ['default'];
 const best = new Map(); // id -> {name, time}
 let userZoom = store.get('zoom', 1);
-let ended = false, tickN = 0;
+let ended = false, tickN = 0, menuOpen = true, playing = false, bgT0 = performance.now();
 
-async function loadMap(id) {
-  if (loading) return; loading = true; $('loading').hidden = false; $('loading').textContent = 'Cargando ' + (MAPS.find(m => m.id === id) || {}).name + '…';
+const mapInfo = id => MAPS.find(m => m.id === id) || { name: id };
+// bg = true: solo de fondo para el menú (sin tee)
+async function loadMap(id, bg = false) {
+  if (loading) return false; loading = true;
+  if (!bg) { $('loading').hidden = false; $('loading').textContent = 'Cargando ' + mapInfo(id).name + '…'; }
+  let ok = true;
   try {
     const meta = await (await fetch('maps/' + id + '.json')).json();
     const raw = await (await fetch('maps/' + id + '.dat')).arrayBuffer();
     const bin = await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
     const imgs = await Promise.all(meta.images.map(im => im ? new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = 'maps/' + im.file; }) : null));
     MAP = meta; C = buildCollision(meta, bin); R = createMapRenderer(meta, bin, imgs); mapId = id;
-    best.clear(); spawn(); renderBoard();
-    camX = me.core.x; camY = me.core.y; R.warm({ x: camX, y: camY }, viewZoom(), W, H);
-    $('mapName').textContent = (MAPS.find(m => m.id === id) || {}).name || id;
-  } catch (e) { console.error(e); toast('No se pudo cargar el mapa'); }
+    best.clear();
+    if (bg) { me = null; playing = false; const s = C.spawns[0] || [0, 0]; bgX = s[0]; bgY = s[1]; camX = bgX; camY = bgY; bgT0 = performance.now(); }
+    else { playing = true; ended = false; spawn(); camX = me.core.x; camY = me.core.y; if (!store.get('help', false)) { $('help').hidden = false; store.set('help', true); } }
+    renderBoard(); R.warm({ x: camX, y: camY }, viewZoom(), W, H);
+  } catch (e) { console.error(e); toast('No se pudo cargar el mapa'); ok = false; }
   loading = false; $('loading').hidden = true;
+  return ok;
 }
+let bgX = 0, bgY = 0;
 function spawn() {
   const s = C.spawns[Math.floor(Math.random() * C.spawns.length)];
   me = { core: newCore(s[0], s[1]), st: { tick: 0, start: null, time: 0, check: 0, finished: false }, swing: 0, reload: 0, walk: 0, eyes: 'normal', eyeT: 0, prevJump: false };
@@ -66,15 +87,20 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   K[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
-  if (e.code === 'KeyK' && me) { spawn(); toast('💀 Reiniciaste'); }
-  if (e.code === 'Escape') toggleMenu();
+  if (e.code === 'KeyK' && me && !menuOpen) { spawn(); toast('💀 Reiniciaste'); }
+  if (e.code === 'Escape') { if (!$('help').hidden) $('help').hidden = true; else if (panel) showPanel(null); else if (playing) toggleMenu(); }
   if (e.code === 'Tab') { e.preventDefault(); $('board').classList.add('show'); }
 });
 addEventListener('keyup', e => { K[e.code] = false; if (e.code === 'Tab') $('board').classList.remove('show'); });
 cv.addEventListener('mousemove', e => { mouse.x = e.clientX * DPR; mouse.y = e.clientY * DPR; });
 cv.addEventListener('mousedown', e => { if (!AC) loadSounds(); if (e.button === 0) mouse.l = true; if (e.button === 2) mouse.r = true; });
 addEventListener('mouseup', e => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
-cv.addEventListener('contextmenu', e => e.preventDefault());
+// nunca se abre el menú del click derecho (en ningún lado), y si se suelta el botón fuera de la ventana no queda trabado
+document.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('mousemove', e => { if (!(e.buttons & 1)) mouse.l = false; if (!(e.buttons & 2)) mouse.r = false; });
+const releaseAll = () => { mouse.l = mouse.r = false; for (const k in K) K[k] = false; touch.jump = touch.hammer = false; touch.move = touch.aim = null; };
+addEventListener('blur', releaseAll);
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
 cv.addEventListener('wheel', e => { userZoom = Math.min(1.8, Math.max(0.5, userZoom * (e.deltaY > 0 ? 0.92 : 1.08))); store.set('zoom', userZoom); e.preventDefault(); }, { passive: false });
 addEventListener('keydown', () => { if (!AC) loadSounds(); }, { once: true });
 
@@ -111,6 +137,7 @@ const viewZoom = () => Math.min(W / 1300, H / 760) * userZoom * (isTouch && W < 
 function aimFromScreen(px, py) { if (!me) return; const sx = (me.core.x - camX) * zoom + W / 2, sy = (me.core.y - camY) * zoom + H / 2; aim.x = (px - sx) / zoom; aim.y = (py - sy) / zoom; }
 
 function readInput() {
+  if (menuOpen) return { dir: 0, jump: false, hook: false, fire: false, tx: aim.x || 1, ty: aim.y };
   let dir = (K.KeyD || K.ArrowRight ? 1 : 0) - (K.KeyA || K.ArrowLeft ? 1 : 0);
   let jump = !!(K.Space || K.KeyW || K.ArrowUp), hook = mouse.r || !!K.ShiftLeft, fire = mouse.l;
   if (isTouch) {
@@ -238,10 +265,10 @@ function frame(now) {
   for (const r of remote.values()) r.cur = r.buf.length ? r.buf[r.buf.length - 1].s : null;
   x.setTransform(1, 0, 0, 1, 0, 0);
   x.fillStyle = '#7fb0d8'; x.fillRect(0, 0, W, H);
-  if (me && R) {
+  if (R) {
     zoom = viewZoom();
-    const [tx, ty] = myRenderPos();
-    camX = tx; camY = ty; // cámara pegada al tee, como en DDNet
+    if (me) { const [tx, ty] = myRenderPos(); camX = tx; camY = ty; } // cámara pegada al tee, como en DDNet
+    else { const t = (now - bgT0) / 1000; camX = bgX + Math.sin(t / 14) * 900 + 300; camY = bgY + Math.sin(t / 9) * 120 - 60; } // menú: el mapa pasa de fondo
     R.draw(x, { x: camX, y: camY }, zoom, W, H, now, drawPlayers, true);
   }
   x.setTransform(1, 0, 0, 1, 0, 0);
@@ -250,6 +277,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 function hud() {
+  $('timer').hidden = $('btnX').hidden = !me || menuOpen;
   if (!me) return;
   $('timer').textContent = me.st.start != null ? fmt(me.st.time) : '0.00';
   $('timer').classList.toggle('done', me.st.finished);
@@ -267,32 +295,81 @@ function renderBoard() {
   for (const [id, r] of remote) rows.push({ id, name: r.name, time: (best.get(id) || {}).time, skin: r.skin, run: r.cur && r.cur.t });
   rows.sort((a, b) => (a.time ?? 1e9) - (b.time ?? 1e9));
   const rec = store.get('rec', {})[mapId];
+  setTimeout(() => { if (menuOpen && playing && !panel) $('pBoard').innerHTML = $('board').innerHTML; });
   $('board').innerHTML = `<h3>${esc((MAPS.find(m => m.id === mapId) || {}).name || '')}</h3>` + rows.map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${r.time != null ? ['🥇', '🥈', '🥉'][i] || (i + 1) : '·'}</span><b>${esc(r.name)}</b><i>${r.time != null ? fmt(r.time) : r.run != null ? '⏱ ' + fmt(r.run) : '—'}</i></div>`).join('') + (rec ? `<small>Tu récord en este mapa: ${fmt(rec)}</small>` : '');
 }
+// ---------- menú principal ----------
+let panel = null, tab = 'novice';
 function toggleMenu(force) {
-  const m = $('menu'), open = force ?? m.hidden;
-  m.hidden = !open; if (open) renderMenu();
+  menuOpen = force ?? !menuOpen;
+  $('menu').hidden = !menuOpen; document.body.classList.toggle('inmenu', menuOpen);
+  if (menuOpen) { releaseAll(); showPanel(null); } else { showPanel(null); $('board').classList.remove('show'); }
 }
+function showPanel(p) {
+  panel = p;
+  for (const id of ['pPlay', 'pSkins', 'pOpts']) $(id).hidden = id !== p;
+  $('menu').querySelector('.mwrap').classList.toggle('sub', !!p);
+  for (const [b, q] of [['mPlay', 'pPlay'], ['mSkins', 'pSkins'], ['mOpts', 'pOpts']]) $(b).classList.toggle('on', p === q);
+  renderMenu();
+}
+const isHostish = () => !Arcade.isOnline() || Arcade.isHost();
+const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
 function renderMenu() {
-  const host = !Arcade.isOnline() || Arcade.isHost();
-  $('menuMaps').innerHTML = MAPS.map(m => `<button data-map="${m.id}" class="${m.id === mapId ? 'on' : ''}" ${host ? '' : 'disabled'}><b>${esc(m.name)}</b><small>${esc(m.lvl)} · ${esc(m.by)}</small></button>`).join('');
-  $('menuHint').textContent = host ? '' : 'El mapa lo elige el host';
-  $('skinList').innerHTML = skins.map(s => `<button data-skin="${esc(s)}" class="${s === mySkin ? 'on' : ''}" title="${esc(s)}"><canvas width="64" height="64" data-sk="${esc(s)}"></canvas></button>`).join('');
-  $('skinList').querySelectorAll('canvas').forEach(c => { const sk = loadSkin(c.dataset.sk); const d = () => { const g = c.getContext('2d'); g.clearRect(0, 0, 64, 64); drawTee(g, { x: 32, y: 36, aimX: 1, aimY: 0.2, vx: 0, grounded: true, skin: c.dataset.sk, walk: 0 }); }; if (sk.ok) d(); else sk.img.addEventListener('load', () => setTimeout(d, 0), { once: true }); });
-  $('btnEnd').hidden = !(Arcade.isOnline() && Arcade.isHost());
-  $('mute').textContent = muted ? '🔇 Sonido apagado' : '🔊 Sonido';
+  const host = isHostish();
+  $('menu').classList.toggle('ingame', playing);
+  $('mResume').hidden = !playing;
+  $('mEnd').hidden = !(playing && Arcade.isOnline() && Arcade.isHost());
+  $('mTut').disabled = !host; $('mTut').title = host ? '' : 'El mapa lo elige el host';
+  // tiempos al costado cuando estás jugando (en el celu no hay Tab)
+  $('pBoard').hidden = !playing || !!panel; if (playing) $('pBoard').innerHTML = $('board').innerHTML;
+  if (panel === 'pPlay') {
+    $('tabs').innerHTML = CATS.map(c => `<button data-tab="${c.id}" class="${c.id === tab ? 'on' : ''}" style="--c:${c.c}">${c.name} <small>· ${c.es}</small></button>`).join('');
+    const rec = store.get('rec', {}), cat = CATS.find(c => c.id === tab);
+    $('mapList').innerHTML = MAPS.filter(m => m.cat === tab).map(m => `<button data-map="${m.id}" class="${playing && m.id === mapId ? 'on' : ''}" style="--c:${cat.c}" ${host ? '' : 'disabled'}><b>${esc(m.name)}</b><small>de ${esc(m.by)}</small><span class="st">${stars(m.st)}${rec[m.id] ? `<i>🏁 ${fmt(rec[m.id])}</i>` : ''}</span></button>`).join('');
+    $('menuHint').textContent = host ? (tab === 'novice' ? 'Muchos mapas de DDNet están pensados para jugar de a 2 o más: uno ayuda al otro con el hook o el martillo.' : '') : '⏳ El mapa lo elige el host: cuando elija, entrás solo.';
+  }
+  if (panel === 'pSkins') {
+    $('skinList').innerHTML = skins.map(s => `<button data-skin="${esc(s)}" class="${s === mySkin ? 'on' : ''}" title="${esc(s)}"><canvas width="64" height="64" data-sk="${esc(s)}"></canvas></button>`).join('');
+    $('skinList').querySelectorAll('canvas').forEach(c => teePreview(c, c.dataset.sk, 1));
+    teePreview($('skinPrev').querySelector('canvas'), mySkin, 2); $('skinName').textContent = mySkin;
+  }
+  if (panel === 'pOpts') {
+    $('mute').textContent = muted ? '🔇 Sonido apagado' : '🔊 Sonido prendido';
+    $('zoomIn').value = userZoom; $('btnKill').hidden = !playing;
+    $('mapCredits').textContent = MAPS.map(m => `${m.name} (${m.by})`).join(', ');
+  }
+}
+function teePreview(c, skin, sc) {
+  const sk = loadSkin(skin);
+  const d = () => { const g = c.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.setTransform(sc, 0, 0, sc, 0, 0); drawTee(g, { x: 32, y: 36, aimX: 1, aimY: 0.2, vx: 0, grounded: true, skin, walk: 0 }); };
+  if (sk.ok) d(); else sk.img.addEventListener('load', () => setTimeout(d, 0), { once: true });
+}
+async function pickMap(id) {
+  if (!isHostish() || loading) return;
+  if (Arcade.isOnline()) Arcade.send('map', { m: id });
+  if (await loadMap(id)) toggleMenu(false);
 }
 $('menu').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.map && !b.disabled) { if (Arcade.isOnline()) Arcade.send('map', { m: b.dataset.map }); loadMap(b.dataset.map); toggleMenu(false); }
-  if (b.dataset.skin) { mySkin = b.dataset.skin; store.set('skin', mySkin); if (Arcade.isOnline()) Arcade.send('skin', { s: mySkin }); renderMenu(); }
-  if (b.id === 'closeMenu') toggleMenu(false);
-  if (b.id === 'mute') { muted = !muted; store.set('mute', muted); renderMenu(); }
-  if (b.id === 'btnKill') { spawn(); toggleMenu(false); }
-  if (b.id === 'btnEnd') endGame();
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (!AC) loadSounds();
+  if (b.dataset.tab) { tab = b.dataset.tab; renderMenu(); return; }
+  if (b.dataset.map) { pickMap(b.dataset.map); return; }
+  if (b.dataset.skin) { mySkin = b.dataset.skin; store.set('skin', mySkin); if (Arcade.isOnline()) Arcade.send('skin', { s: mySkin }); renderMenu(); return; }
+  if (b.classList.contains('back')) { showPanel(null); return; }
+  switch (b.id) {
+    case 'mResume': toggleMenu(false); break;
+    case 'mPlay': showPanel(panel === 'pPlay' ? null : 'pPlay'); break;
+    case 'mTut': pickMap('tutorial'); break;
+    case 'mSkins': showPanel(panel === 'pSkins' ? null : 'pSkins'); break;
+    case 'mOpts': showPanel(panel === 'pOpts' ? null : 'pOpts'); break;
+    case 'mEnd': endGame(); break;
+    case 'mute': muted = !muted; store.set('mute', muted); renderMenu(); break;
+    case 'btnHelp': $('help').hidden = false; break;
+    case 'btnKill': spawn(); toggleMenu(false); break;
+  }
 });
-$('btnMenu').addEventListener('click', () => toggleMenu());
-$('btnBoard').addEventListener('click', () => $('board').classList.toggle('show'));
+$('zoomIn').addEventListener('input', e => { userZoom = +e.target.value; store.set('zoom', userZoom); });
+$('btnX').addEventListener('click', () => toggleMenu(true));
 function toast(t, ms = 2200) { const e = $('toast'); e.innerHTML = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), ms); }
 function endGame() {
   if (ended) return; ended = true;
@@ -323,10 +400,13 @@ function setupNet() {
     toast(`🏁 ${esc(nameOf(from))} llegó: ${fmt(d.t)}`); play('msg', 0.4); renderBoard();
   });
   Arcade.on('skin', (d, from) => { const r = remote.get(from); if (r && d && typeof d.s === 'string' && skins.includes(d.s)) r.skin = d.s; else if (d && skins.includes(d.s)) remote.set(from, { buf: [], name: nameOf(from), skin: d.s, last: 0 }); });
-  Arcade.on('map', (d, from) => { if (from !== Arcade.ctx.hostId || !d || !MAPS.some(m => m.id === d.m)) return; if (d.m !== mapId) { loadMap(d.m); toast('🗺️ Mapa: ' + MAPS.find(m => m.id === d.m).name); } });
+  Arcade.on('map', async (d, from) => {
+    if (from !== Arcade.ctx.hostId || !d || !MAPS.some(m => m.id === d.m)) return;
+    if (d.m !== mapId || !playing) { const was = menuOpen && !playing; if (await loadMap(d.m)) { toast('🗺️ Mapa: ' + mapInfo(d.m).name); if (was) toggleMenu(false); else renderMenu(); } }
+  });
   Arcade.on('hi', (d, from) => {
     Arcade.send('skin', { s: mySkin }, { to: from });
-    if (Arcade.isHost()) Arcade.send('map', { m: mapId }, { to: from });
+    if (Arcade.isHost() && playing) Arcade.send('map', { m: mapId }, { to: from });
     if (best.has(myId)) Arcade.send('fin', { t: best.get(myId).time, m: mapId }, { to: from });
   });
   Arcade.onPlayerLeft(id => { remote.delete(id); best.delete(id); renderBoard(); });
@@ -343,11 +423,11 @@ function nameOf(id) { const p = Arcade.players.find(q => q.id === id); return p 
     Arcade.admin.define([{ id: 'tr.finish', label: 'Terminar la partida ya', type: 'button' }]);
     Arcade.admin.on('tr.finish', () => { if (Arcade.isHost()) endGame(); });
   }
-  if (Arcade.isOnline()) setupNet();
-  await loadMap(MAPS[0].id);
-  if (Arcade.isOnline()) { Arcade.send('hi', {}); Arcade.send('skin', { s: mySkin }); }
+  if (Arcade.isOnline()) { setupNet(); Arcade.onHostChanged(() => renderMenu()); }
+  toggleMenu(true);
   requestAnimationFrame(frame);
-  if (!store.get('help', false)) { $('help').hidden = false; store.set('help', true); }
+  await loadMap(BG_MAP, true);
+  if (Arcade.isOnline()) { Arcade.send('hi', {}); Arcade.send('skin', { s: mySkin }); }
 })();
 $('help').addEventListener('click', () => { $('help').hidden = true; });
-window.__tr = { perf, get R() { return R; }, get me() { return me; }, get C() { return C; }, remote, loadMap };
+window.__tr = { perf, get R() { return R; }, get me() { return me; }, get C() { return C; }, remote, loadMap, pickMap, toggleMenu };

@@ -11,23 +11,49 @@
 </head>
 <body>
   <canvas id="cv"></canvas>
-  <div id="top"><span id="mapName"></span><span id="timer">0.00</span></div>
+  <div id="timer" hidden>0.00</div>
   <div id="frz" hidden></div>
   <div id="board"></div>
-  <div class="corner"><button id="btnBoard" title="Tiempos (Tab)">🏁</button><button id="btnMenu" title="Menú (Esc)">☰</button></div>
-  <div id="menu" hidden>
-    <div class="box">
-      <h2>Tee Race</h2>
-      <h4>Mapas</h4><div id="menuMaps" class="maps"></div><small id="menuHint"></small>
-      <h4>Tu skin</h4><div id="skinList" class="skins"></div>
-      <div class="row"><button id="btnKill">💀 Reiniciar (K)</button><button id="mute">🔊 Sonido</button><button id="btnEnd" hidden>🏆 Terminar partida</button><button id="closeMenu" class="go">Seguir</button></div>
-      <p class="credits">Física, mapas, skins y sonidos de <b>DDraceNetwork</b> y <b>Teeworlds</b> (código zlib, contenido CC-BY-SA 3.0). Mapas: Tutorial (unique2 &amp; Alisa), LearnToPlay (Tridemy &amp; Cøke), Sunny Side Up (Ravie), Gold Mine (BµmM), Tsunami (louis). Skins de sus autores, ver LICENSE-SKINS.txt.</p>
+  <button id="btnX" title="Menú (Esc)" hidden>✕</button>
+  <div id="menu">
+    <div class="logo"><b>TEE RACE</b><small>carreras cooperativas · mapas de DDraceNetwork</small></div>
+    <div class="mwrap">
+      <nav id="nav">
+        <button id="mResume" class="big go" hidden>▶ Seguir jugando</button>
+        <button id="mPlay" class="big">Jugar</button>
+        <button id="mTut" class="big">Tutorial</button>
+        <button id="mSkins" class="big">Skins</button>
+        <button id="mOpts" class="big">Opciones</button>
+        <button id="mEnd" class="big warn" hidden>🏆 Terminar partida</button>
+      </nav>
+      <section id="pPlay" class="panel" hidden>
+        <div class="phead"><button class="back">‹</button><h3>Elegí un mapa</h3></div>
+        <div id="tabs" class="tabs"></div>
+        <div id="mapList" class="mlist"></div>
+        <small id="menuHint" class="hint"></small>
+      </section>
+      <section id="pSkins" class="panel" hidden>
+        <div class="phead"><button class="back">‹</button><h3>Tu skin</h3></div>
+        <div id="skinPrev" class="skinprev"><canvas width="128" height="128"></canvas><b id="skinName"></b></div>
+        <div id="skinList" class="skins"></div>
+      </section>
+      <section id="pOpts" class="panel" hidden>
+        <div class="phead"><button class="back">‹</button><h3>Opciones</h3></div>
+        <div class="opts">
+          <button id="mute">🔊 Sonido</button>
+          <label>Zoom <input id="zoomIn" type="range" min="0.5" max="1.8" step="0.05"></label>
+          <button id="btnHelp">❔ Controles</button>
+          <button id="btnKill">💀 Reiniciar (K)</button>
+        </div>
+        <p class="credits">Física, mapas, skins y sonidos de <b>DDraceNetwork</b> y <b>Teeworlds</b> (código zlib; el contenido de DDNet es CC-BY-SA 3.0). No es un servidor oficial de DDNet.<br>Mapas y sus autores: <span id="mapCredits"></span>. Skins de sus autores, ver LICENSE-SKINS.txt.</p>
+      </section>
+      <section id="pBoard" class="panel side" hidden></section>
     </div>
   </div>
   <div id="help" hidden>
     <div class="box">
       <h2>Cómo se juega</h2>
-      <p class="desk"><b>A / D</b> moverse · <b>Espacio</b> saltar (doble salto en el aire) · <b>Click derecho</b> hook · <b>Click izquierdo</b> martillo · <b>K</b> reiniciar · <b>Tab</b> tiempos · <b>Esc</b> menú</p>
+      <p class="desk"><b>A / D</b> moverse · <b>Espacio</b> saltar (doble salto en el aire) · <b>Click derecho</b> hook · <b>Click izquierdo</b> martillo · <b>K</b> reiniciar · <b>Tab</b> tiempos · <b>Esc</b> o <b>✕</b> menú</p>
       <p class="mob">Palanca a la izquierda para moverte (para arriba salta) · Tocá a la derecha para tirar el hook hacia ahí · Botones de salto y martillo</p>
       <p>Pasá por la <b>largada</b>, llegá a la <b>meta</b>. El hielo te congela 3 segundos: tus amigos te pueden enganchar con el hook o darte un martillazo para descongelarte.</p>
       <button class="go">¡Dale!</button>
@@ -36,7 +62,7 @@
   <div id="stick" hidden><div></div></div>
   <div class="tbtns"><button id="btnHammer">🔨</button><button id="btnJump">⤒</button></div>
   <div id="toast"></div>
-  <div id="loading">Cargando…</div>
+  <div id="loading" hidden>Cargando…</div>
   <script src="/sdk/arcade-sdk.js"></script>
   <script type="module" src="game.js"></script>
 </body>

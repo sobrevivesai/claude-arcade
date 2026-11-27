@@ -197,9 +197,9 @@ export function createMapRenderer(meta, bin, images) {
     for (const it of items) {
       if (it.off) continue;
       if (it.k === 'players') { drawPlayers(); continue; }
-      const G = it.G, ccx = cam.x * G.px / 100 + G.ox, ccy = cam.y * G.py / 100 + G.oy;
-      x.setTransform(zoom, 0, 0, zoom, Math.round(W / 2 - ccx * zoom), Math.round(H / 2 - ccy * zoom));
-      const vx0 = ccx - W / 2 / zoom, vy0 = ccy - H / 2 / zoom, vx1 = ccx + W / 2 / zoom, vy1 = ccy + H / 2 / zoom;
+      const G = it.G, ccx = cam.x * G.px / 100 + G.ox, ccy = cam.y * G.py / 100 + G.oy, z = groupZoom(G, zoom, W, H);
+      x.setTransform(z, 0, 0, z, Math.round(W / 2 - ccx * z), Math.round(H / 2 - ccy * z));
+      const vx0 = ccx - W / 2 / z, vy0 = ccy - H / 2 / z, vx1 = ccx + W / 2 / z, vy1 = ccy + H / 2 / z;
       if (it.k === 'live') {
         for (const Q of it.quads) {
           if (Q.pe < 0) { const o = Q.ofs || [0, 0]; if (Q.x1 + o[0] < vx0 || Q.x0 + o[0] > vx1 || Q.y1 + o[1] < vy0 || Q.y0 + o[1] > vy1) continue; }
@@ -226,13 +226,29 @@ export function createMapRenderer(meta, bin, images) {
     frameT = tick + 1;
     for (const it of items) {
       if (it.k !== 'run') continue;
-      const G = it.G, ccx = cam.x * G.px / 100 + G.ox, ccy = cam.y * G.py / 100 + G.oy, bb = it.bb;
-      const c0 = Math.floor(Math.max(ccx - W / 2 / zoom, bb[0]) / CPX), c1 = Math.floor(Math.min(ccx + W / 2 / zoom, bb[2]) / CPX);
-      const r0 = Math.floor(Math.max(ccy - H / 2 / zoom, bb[1]) / CPX), r1 = Math.floor(Math.min(ccy + H / 2 / zoom, bb[3]) / CPX);
+      const G = it.G, ccx = cam.x * G.px / 100 + G.ox, ccy = cam.y * G.py / 100 + G.oy, bb = it.bb, z = groupZoom(G, zoom, W, H);
+      const c0 = Math.floor(Math.max(ccx - W / 2 / z, bb[0]) / CPX), c1 = Math.floor(Math.min(ccx + W / 2 / z, bb[2]) / CPX);
+      const r0 = Math.floor(Math.max(ccy - H / 2 / z, bb[1]) / CPX), r1 = Math.floor(Math.min(ccy + H / 2 / z, bb[3]) / CPX);
       for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) { built = 0; chunkFor(it, cx, cy, true); }
     }
   }
   return { items, draw, warm, stats: () => ({ items: items.length, runs: items.filter(i => i.k === 'run').length, live: items.filter(i => i.k === 'live').reduce((s, i) => s + i.quads.length, 0), chunks: chunks.size, built: totalBuilt, need: Math.round(lastDemand * 4 / 1e6), mb: Math.round(mem * 4 / 1e6) }) };
+}
+
+// ---------- zoom por grupo, como DDNet ----------
+// DDNet ve siempre unas 1150×1000 unidades de mapa (según la forma de la pantalla). Cuando uno se aleja o se acerca,
+// los fondos con paralaje lento (cielos, montañas lejanas) casi no cambian de tamaño: así el cielo siempre tapa la pantalla.
+export function baseZoom(W, H) {
+  const a = W / H; let w = Math.sqrt(1150 * 1000 * a), h = w / a;
+  if (w > 1500) { w = 1500; h = w / a; }
+  if (h > 1050) { h = 1050; w = h * a; }
+  return W / w;
+}
+function groupZoom(G, zoom, W, H) {
+  const pz = Math.max(0, Math.min(100, Math.max(G.px, G.py)));
+  if (pz >= 100) return zoom;
+  const b = baseZoom(W, H), Z = b / zoom; // Z > 1: se ve más mapa que en DDNet
+  return b / (1 + (Z - 1) * pz / 100);
 }
 
 // ---------- tees ----------

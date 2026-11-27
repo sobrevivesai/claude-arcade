@@ -10,3 +10,5 @@ Carreras cooperativas al estilo **DDraceNetwork**: física portada del código d
 - `src/physics.js` física (port de gamecore/collision/character de DDNet), `src/render.js` mapa y tees en Canvas 2D, `src/main.js` juego, red y HUD.
 - `tools/convert_map.py` convierte un `.map` de DDNet a `maps/<id>.json` + `maps/<id>.dat` (tiles comprimidos con gzip).
 - `game.js` compilado: `npx esbuild src/main.js --bundle --minify --format=esm --outfile=game.js`.
+
+Mapas extra (ddnet-maps): Axison, BackToBasics, Bouncy Kingdom, Aardvark, Aimbot, Catharsis — ver LICENSE-MAPS.txt.

@@ -17,3 +17,10 @@ CC-BY-SA license
 Tutorial:
 Copyright unique2 & Alisa
 CC-BY-SA license
+
+Mapas agregados de ddnet/ddnet-maps (https://github.com/ddnet/ddnet-maps):
+Axison (texnonik), BackToBasics (Shorefire), Bouncy Kingdom (Welf), Aardvark (Pulsar & Ravie),
+Aimbot (Aoe), Catharsis (Doshik).
+Estos mapas no traen una licencia explícita en el archivo. Se usan con el permiso general del
+equipo de DDNet para alojar sus mapas ("you can host our maps, just don't pretend to be an
+official DDNet server"). Esto no es un servidor oficial de DDNet. Todos los derechos de sus autores.
