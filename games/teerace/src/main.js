@@ -15,7 +15,8 @@ const MAPS = [
 const cv = $('cv'), x = cv.getContext('2d');
 const game = new Image(); game.src = 'img/game.webp';
 let W = 0, H = 0, DPR = 1;
-function resize() { DPR = Math.min(devicePixelRatio || 1, 2); W = cv.width = Math.round(innerWidth * DPR); H = cv.height = Math.round(innerHeight * DPR); }
+// resolución de dibujo: 1 píxel por píxel CSS en compu, un poco menos en el celu (se nota poco y va mucho más fluido)
+function resize() { DPR = matchMedia('(pointer: coarse)').matches ? 0.8 : 1; W = cv.width = Math.round(innerWidth * DPR); H = cv.height = Math.round(innerHeight * DPR); x.imageSmoothingQuality = 'low'; }
 addEventListener('resize', resize); resize();
 
 // ---------- sonidos (originales de Teeworlds/DDNet) ----------
@@ -46,6 +47,7 @@ async function loadMap(id) {
     const imgs = await Promise.all(meta.images.map(im => im ? new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = 'maps/' + im.file; }) : null));
     MAP = meta; C = buildCollision(meta, bin); R = createMapRenderer(meta, bin, imgs); mapId = id;
     best.clear(); spawn(); renderBoard();
+    camX = me.core.x; camY = me.core.y; R.warm({ x: camX, y: camY }, viewZoom(), W, H);
     $('mapName').textContent = (MAPS.find(m => m.id === id) || {}).name || id;
   } catch (e) { console.error(e); toast('No se pudo cargar el mapa'); }
   loading = false; $('loading').hidden = true;
@@ -53,6 +55,8 @@ async function loadMap(id) {
 function spawn() {
   const s = C.spawns[Math.floor(Math.random() * C.spawns.length)];
   me = { core: newCore(s[0], s[1]), st: { tick: 0, start: null, time: 0, check: 0, finished: false }, swing: 0, reload: 0, walk: 0, eyes: 'normal', eyeT: 0, prevJump: false };
+  // si el spawn queda lejos, la cámara salta directo (no recorre el mapa)
+  if (Math.hypot(me.core.x - camX, me.core.y - camY) > 900) { camX = me.core.x; camY = me.core.y; }
   play('spawn', 0.4);
 }
 
@@ -103,6 +107,7 @@ for (const [id, k] of [['btnJump', 'jump'], ['btnHammer', 'hammer']]) {
   b.addEventListener('touchend', e => { touch[k] = false; e.preventDefault(); }, { passive: false });
 }
 let camX = 0, camY = 0, zoom = 1;
+const viewZoom = () => Math.min(W / 1300, H / 760) * userZoom * (isTouch && W < H ? 1.25 : 1);
 function aimFromScreen(px, py) { if (!me) return; const sx = (me.core.x - camX) * zoom + W / 2, sy = (me.core.y - camY) * zoom + H / 2; aim.x = (px - sx) / zoom; aim.y = (py - sy) / zoom; }
 
 function readInput() {
@@ -126,6 +131,7 @@ function othersNow() {
 function step() {
   if (!me || !C) return;
   const c = me.core, st = me.st; st.tick++; tickN++;
+  me.px = c.x; me.py = c.y; me.phx = c.hx; me.phy = c.hy;
   const inp = readInput();
   // freeze: sin control
   if (c.freeze > 0) { c.freeze--; inp.dir = 0; inp.jump = false; inp.hook = false; inp.fire = false; if (c.freeze === 1) c.freeze = 0; }
@@ -182,14 +188,27 @@ const fmt = t => { const m = Math.floor(t / 60), s = t - m * 60; return (m ? m +
 // ---------- dibujo ----------
 function lerp(a, b, k) { return a + (b - a) * k; }
 function remoteState(r) {
-  // 100 ms atrás para que se vea suave
-  const t = performance.now() - 100, B = r.buf;
+  // se dibuja un poco atrás en el tiempo (según cuán parejos llegan los paquetes) para que se vea suave
+  const delay = Math.max(70, Math.min(260, (r.gap || 40) + 3 * (r.jit || 10) + 25));
+  const t = performance.now() - delay, B = r.buf;
   if (!B.length) return null;
+  const L = B[B.length - 1];
+  if (t > L.t) {
+    // se atrasó el paquete: se sigue un ratito con la velocidad que traía
+    const k = Math.min(5, (t - L.t) / (1000 / TICK));
+    return { ...L.s, x: L.s.x + L.s.vx * k, y: L.s.y + L.s.vy * k, hx: L.s.hx + L.s.vx * k, hy: L.s.hy + L.s.vy * k };
+  }
   for (let i = B.length - 1; i > 0; i--) if (B[i - 1].t <= t) {
     const a = B[i - 1], b = B[i], k = Math.min(1, Math.max(0, (t - a.t) / Math.max(1, b.t - a.t)));
     return { ...b.s, x: lerp(a.s.x, b.s.x, k), y: lerp(a.s.y, b.s.y, k), hx: lerp(a.s.hx, b.s.hx, k), hy: lerp(a.s.hy, b.s.hy, k) };
   }
   return B[0].s;
+}
+// mi tee entre el tick anterior y el actual (la física va a 50 por segundo y la pantalla a 60 o más)
+function myRenderPos() {
+  const c = me.core, a = Math.min(1, acc / (1000 / TICK));
+  if (me.px == null || Math.hypot(c.x - me.px, c.y - me.py) > 200) return [c.x, c.y, c.hx, c.hy];
+  return [lerp(me.px, c.x, a), lerp(me.py, c.y, a), lerp(me.phx, c.hx, a), lerp(me.phy, c.hy, a)];
 }
 function drawPlayers() {
   x.setTransform(zoom, 0, 0, zoom, W / 2 - camX * zoom, H / 2 - camY * zoom);
@@ -200,7 +219,7 @@ function drawPlayers() {
     r.walk = (r.walk || 0) + Math.abs(s.vx) * 0.045;
     list.push({ id, x: s.x, y: s.y, hx: s.hx, hy: s.hy, hs: s.hs, aimX: s.ax, aimY: s.ay, vx: s.vx, grounded: s.gr, frozen: s.fz, walk: r.walk, skin: r.skin || 'default', name: r.name, swing: s.sw, alpha: 0.92 });
   }
-  if (me) { const c = me.core; list.push({ id: myId, me: true, x: c.x, y: c.y, hx: c.hx, hy: c.hy, hs: c.hookState, aimX: aim.x, aimY: aim.y, vx: c.vx, grounded: me.gr, frozen: c.freeze > 0 || c.deep, walk: me.walk, skin: mySkin, name: myName, swing: me.swing, eyes: me.eyes }); }
+  if (me) { const c = me.core, [rx, ry, rhx, rhy] = myRenderPos(); list.push({ id: myId, me: true, x: rx, y: ry, hx: rhx, hy: rhy, hs: c.hookState, aimX: aim.x, aimY: aim.y, vx: c.vx, grounded: me.gr, frozen: c.freeze > 0 || c.deep, walk: me.walk, skin: mySkin, name: myName, swing: me.swing, eyes: me.eyes }); }
   for (const t of list) if (t.hs === HOOK.FLYING || t.hs === HOOK.GRABBED) drawHook(x, game, t);
   for (const t of list) { drawHammer(x, game, t); drawTee(x, t); }
   // nombres y freeze
@@ -211,20 +230,23 @@ function drawPlayers() {
   }
 }
 let lastFrame = performance.now(), acc = 0;
+const perf = { work: 0, fps: 0, n: 0 };
 function frame(now) {
+  const t0 = performance.now();
   const dt = Math.min(250, now - lastFrame); lastFrame = now; acc += dt;
   while (acc >= 1000 / TICK) { step(); acc -= 1000 / TICK; }
   for (const r of remote.values()) r.cur = r.buf.length ? r.buf[r.buf.length - 1].s : null;
   x.setTransform(1, 0, 0, 1, 0, 0);
   x.fillStyle = '#7fb0d8'; x.fillRect(0, 0, W, H);
   if (me && R) {
-    zoom = Math.min(W / 1300, H / 760) * userZoom * (isTouch && W < H ? 1.25 : 1);
-    const tx = me.core.x, ty = me.core.y;
-    camX += (tx - camX) * Math.min(1, dt / 60); camY += (ty - camY) * Math.min(1, dt / 60);
+    zoom = viewZoom();
+    const [tx, ty] = myRenderPos();
+    camX = tx; camY = ty; // cámara pegada al tee, como en DDNet
     R.draw(x, { x: camX, y: camY }, zoom, W, H, now, drawPlayers, true);
   }
   x.setTransform(1, 0, 0, 1, 0, 0);
   hud();
+  perf.work = perf.work * 0.95 + (performance.now() - t0) * 0.05; perf.fps = perf.fps * 0.95 + (dt > 0 ? 1000 / dt : 60) * 0.05; perf.n++;
   requestAnimationFrame(frame);
 }
 function hud() {
@@ -284,7 +306,11 @@ function setupNet() {
   Arcade.on('p', (s, from) => {
     if (!s || typeof s.x !== 'number') return;
     let r = remote.get(from); if (!r) { r = { buf: [], name: nameOf(from), skin: 'default', last: 0 }; remote.set(from, r); renderBoard(); }
-    r.buf.push({ t: performance.now(), s }); if (r.buf.length > 12) r.buf.shift(); r.last = performance.now();
+    const now = performance.now();
+    if (r.last) { const g = now - r.last; r.jit = (r.jit || 10) * 0.9 + Math.abs(g - (r.gap || 40)) * 0.1; r.gap = (r.gap || 40) * 0.9 + g * 0.1; }
+    // si cambió de lugar de golpe (respawn, tele), no se interpola
+    const pv = r.buf.length && r.buf[r.buf.length - 1].s; if (pv && Math.hypot(pv.x - s.x, pv.y - s.y) > 300) r.buf.length = 0;
+    r.buf.push({ t: now, s }); if (r.buf.length > 16) r.buf.shift(); r.last = now;
   });
   Arcade.on('hit', d => {
     if (!me || !d) return;
@@ -324,4 +350,4 @@ function nameOf(id) { const p = Arcade.players.find(q => q.id === id); return p 
   if (!store.get('help', false)) { $('help').hidden = false; store.set('help', true); }
 })();
 $('help').addEventListener('click', () => { $('help').hidden = true; });
-window.__tr = { get me() { return me; }, get C() { return C; }, remote, loadMap };
+window.__tr = { perf, get R() { return R; }, get me() { return me; }, get C() { return C; }, remote, loadMap };
